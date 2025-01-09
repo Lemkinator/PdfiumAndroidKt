@@ -164,7 +164,7 @@ fun MyPager(viewModel: MainViewModel) {
                     .fillMaxWidth()
                     .fillMaxHeight(),
             state = pagerState,
-            pageSpacing = 0.dp,
+            pageSpacing = 10.dp,
             userScrollEnabled = true,
             reverseLayout = false,
             contentPadding = PaddingValues(0.dp),

@@ -27,7 +27,7 @@ android {
     ndkVersion = "28.0.12674087"
 
     defaultConfig {
-        minSdk = 23
+        minSdk = 26
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         consumerProguardFiles("consumer-rules.pro")
         @Suppress("UnstableApiUsage")

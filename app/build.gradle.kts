@@ -22,7 +22,7 @@ android {
 
     defaultConfig {
         applicationId = "io.legere.pdfiumandroidkt"
-        minSdk = 23
+        minSdk = 26
         versionCode = 1
         versionName = "1.0"
 
