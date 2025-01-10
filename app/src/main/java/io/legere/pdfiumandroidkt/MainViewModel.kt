@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import timber.log.Timber
+import java.io.File
 import java.io.IOException
 import javax.inject.Inject
 import kotlin.math.roundToInt
@@ -27,94 +28,123 @@ import kotlin.math.roundToInt
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class MainViewModel
-    @Inject
-    constructor(
-        application: Application,
-    ) : AndroidViewModel(application) {
-        val state: StateFlow<UiState>
-        val accept: (UiAction) -> Unit
+@Inject
+constructor(
+    application: Application,
+) : AndroidViewModel(application) {
+    val state: StateFlow<UiState>
+    val accept: (UiAction) -> Unit
 
-        private val pdfiumCore =
-            PdfiumCoreKt(
-                Dispatchers.Default,
-                Config().copy(
-                    logger =
-                        object : LoggerInterface {
-                            override fun d(
-                                tag: String,
-                                message: String?,
-                            ) {
-                                Timber.tag(tag).d(message)
-                            }
+    private val pdfiumCore =
+        PdfiumCoreKt(
+            Dispatchers.Default,
+            Config().copy(
+                logger =
+                object : LoggerInterface {
+                    override fun d(
+                        tag: String,
+                        message: String?,
+                    ) {
+                        Timber.tag(tag).d(message)
+                    }
 
-                            override fun e(
-                                tag: String,
-                                t: Throwable?,
-                                message: String?,
-                            ) {
-                                Timber.tag(tag).e(t, message)
-                            }
-                        },
-                ),
-            )
-        var pdfDocument: PdfDocumentKt? = null
+                    override fun e(
+                        tag: String,
+                        t: Throwable?,
+                        message: String?,
+                    ) {
+                        Timber.tag(tag).e(t, message)
+                    }
+                },
+            ),
+        )
+    var pdfDocument: PdfDocumentKt? = null
 
-        init {
-            val actionStateFlow = MutableStateFlow<UiAction>(UiAction.Init())
+    init {
+        val actionStateFlow = MutableStateFlow<UiAction>(UiAction.Init())
 
-            state =
-                actionStateFlow
-                    .flatMapLatest { action ->
-                        flow {
-                            when (action) {
-                                is UiAction.Init -> emit(UiState(loadState = LoadStatus.Init))
-                                is UiAction.LoadDoc -> {
-                                    emit(UiState(loadState = LoadStatus.Loading))
-                                    val fd = application.contentResolver.openFileDescriptor(action.uri, "r")
-                                    if (fd != null) {
-                                        try {
-                                            pdfDocument = pdfiumCore.newDocument(fd)
-                                            val pageCount = pdfDocument?.getPageCount() ?: 0
-                                            Timber.d("pageCount: $pageCount")
-                                            emit(
-                                                UiState(
-                                                    loadState = LoadStatus.Success,
-                                                    pageCount = pageCount,
-                                                ),
-                                            )
-                                        } catch (e: IOException) {
-                                            Timber.e(e)
-                                            emit(UiState(loadState = LoadStatus.Error))
-                                        }
-                                    } else {
+        state =
+            actionStateFlow
+                .flatMapLatest { action ->
+                    flow {
+                        when (action) {
+                            is UiAction.Init -> {
+                                emit(UiState(loadState = LoadStatus.Init))
+                                val uri = application.assets.open("sample.pdf").use { inputStream ->
+                                    val outFile = File(application.cacheDir, "sample.pdf")
+                                    outFile.outputStream().use { outputStream ->
+                                        inputStream.copyTo(outputStream)
+                                    }
+                                    Uri.fromFile(outFile)
+                                }
+                                val fd = application.contentResolver.openFileDescriptor(uri, "r")
+                                if (fd != null) {
+                                    try {
+                                        pdfDocument = pdfiumCore.newDocument(fd)
+                                        val pageCount = pdfDocument?.getPageCount() ?: 0
+                                        Timber.d("pageCount: $pageCount")
+                                        emit(
+                                            UiState(
+                                                loadState = LoadStatus.Success,
+                                                pageCount = pageCount,
+                                            ),
+                                        )
+                                    } catch (e: IOException) {
+                                        Timber.e(e)
                                         emit(UiState(loadState = LoadStatus.Error))
                                     }
+                                } else {
+                                    emit(UiState(loadState = LoadStatus.Error))
+                                }
+                            }
+
+                            is UiAction.LoadDoc -> {
+                                emit(UiState(loadState = LoadStatus.Loading))
+                                val fd = application.contentResolver.openFileDescriptor(action.uri, "r")
+                                if (fd != null) {
+                                    try {
+                                        pdfDocument = pdfiumCore.newDocument(fd)
+                                        val pageCount = pdfDocument?.getPageCount() ?: 0
+                                        Timber.d("pageCount: $pageCount")
+                                        emit(
+                                            UiState(
+                                                loadState = LoadStatus.Success,
+                                                pageCount = pageCount,
+                                            ),
+                                        )
+                                    } catch (e: IOException) {
+                                        Timber.e(e)
+                                        emit(UiState(loadState = LoadStatus.Error))
+                                    }
+                                } else {
+                                    emit(UiState(loadState = LoadStatus.Error))
                                 }
                             }
                         }
-                    }.stateIn(viewModelScope, SharingStarted.Lazily, UiState())
+                    }
+                }.stateIn(viewModelScope, SharingStarted.Lazily, UiState())
 
-            accept = { action ->
-                viewModelScope.launch {
-                    actionStateFlow.emit(action)
-                }
+        accept = { action ->
+            viewModelScope.launch {
+                actionStateFlow.emit(action)
             }
         }
+    }
 
-        @Suppress("NestedBlockDepth", "TooGenericExceptionCaught")
-        suspend fun getPage(
-            pageNum: Int,
-            width: Int,
-            height: Int,
-        ): Bitmap? {
-            Timber.d("getPage: pageNum: $pageNum, width: $width, height: $height")
-            try {
-                val zoom = 1f // 2f
+    @Suppress("NestedBlockDepth", "TooGenericExceptionCaught")
+    suspend fun getPage(
+        pageNum: Int,
+        width: Int,
+        height: Int,
+    ): Bitmap? {
+        Timber.d("getPage: pageNum: $pageNum, width: $width, height: $height")
+        try {
+            val zoom = 1f // 2f
 //                val pan = 0f // -width.toFloat() / 2
-                val bitmap = Bitmap.createBitmap(width, height * zoom.roundToInt(), Bitmap.Config.RGB_565)
-                pdfDocument?.openPage(pageNum)?.use { page ->
-                    val size = page.getPageSize(1)
-                    Timber.d("getPageSize: pageNum: $pageNum, width: ${size.width}, height: ${size.height}")
+            val bitmap = Bitmap.createBitmap(width, height * zoom.roundToInt(), Bitmap.Config.RGB_565)
+            pdfDocument?.openPage(pageNum)?.use { page ->
+                val size = page.getPageSize(1)
+                Timber.d("getPageSize: pageNum: $pageNum, width: ${size.width}, height: ${size.height}")
 //                    val pageWidth = page.getPageWidthPoint()
 //                    val pageHeight = page.getPageHeightPoint()
 //                    val tempSrc =
@@ -130,54 +160,54 @@ class MainViewModel
 //                    result.postScale(zoom, zoom)
 //                    result.postTranslate(pan, 0f)
 
-                    page.renderPageBitmap(
-                        bitmap,
-                        0,
-                        0,
-                        width,
-                        height,
-                        renderAnnot = true,
-                    )
-                    page.openTextPage().use { textPage ->
-                        val charCount = textPage.textPageCountChars()
-                        if (charCount > 0) {
-                            val text = textPage.textPageGetText(0, charCount)
-                            Timber.d("text: $text")
+                page.renderPageBitmap(
+                    bitmap,
+                    0,
+                    0,
+                    width,
+                    height,
+                    renderAnnot = true,
+                )
+                page.openTextPage().use { textPage ->
+                    val charCount = textPage.textPageCountChars()
+                    if (charCount > 0) {
+                        val text = textPage.textPageGetText(0, charCount)
+                        Timber.d("text: $text")
 //                val text2 = textPage.textPageGetText2(0, textPage.textPageCountChars())
 //                Timber.d("text2: $text2")
 //                if (text != text2) {
 //                    Timber.e("text != text2")
 //                }
-                        }
                     }
                 }
-                Timber.d("finished getPage $pageNum")
-                return bitmap
-            } catch (e: Exception) {
-                Timber.e(e)
             }
-            return null
+            Timber.d("finished getPage $pageNum")
+            return bitmap
+        } catch (e: Exception) {
+            Timber.e(e)
         }
-
-        sealed class UiAction {
-            data class LoadDoc(
-                val uri: Uri,
-            ) : UiAction()
-
-            data class Init(
-                @Suppress("unused") val s: String = "Init",
-            ) : UiAction()
-        }
-
-        enum class LoadStatus {
-            Init,
-            Loading,
-            Success,
-            Error,
-        }
-
-        data class UiState(
-            val loadState: LoadStatus = LoadStatus.Init,
-            val pageCount: Int = 0,
-        )
+        return null
     }
+
+    sealed class UiAction {
+        data class LoadDoc(
+            val uri: Uri,
+        ) : UiAction()
+
+        data class Init(
+            @Suppress("unused") val s: String = "Init",
+        ) : UiAction()
+    }
+
+    enum class LoadStatus {
+        Init,
+        Loading,
+        Success,
+        Error,
+    }
+
+    data class UiState(
+        val loadState: LoadStatus = LoadStatus.Init,
+        val pageCount: Int = 0,
+    )
+}
